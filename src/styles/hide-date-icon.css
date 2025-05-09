@@ -1,0 +1,17 @@
+/* input[type='date'] için varsayılan takvim ikonunu gizle */
+input[type='date']::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  display: none;
+}
+input[type='date']::-webkit-input-placeholder {
+  color: #222;
+}
+input[type='date']::-moz-placeholder {
+  color: #222;
+}
+input[type='date']:-ms-input-placeholder {
+  color: #222;
+}
+input[type='date']::placeholder {
+  color: #222;
+} 
