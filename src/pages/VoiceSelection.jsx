@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import api from '../utils/api';
 
 const VoiceSelection = ({ onSelect }) => {
   const [voices, setVoices] = useState([]);
@@ -11,8 +12,9 @@ const VoiceSelection = ({ onSelect }) => {
     const fetchVoices = async () => {
       setLoading(true);
       try {
-        const res = await fetch('/api/voices');
-        const data = await res.json();
+        const res = await api.get('/api/voices');
+        const data = res.data;
+        console.log('API voices response:', data);
         setVoices(data.voices || []);
       } catch (err) {
         setVoices([]);
@@ -25,12 +27,10 @@ const VoiceSelection = ({ onSelect }) => {
   const playSample = async (voice) => {
     setPlayingId(voice.voice_id);
     try {
-      const res = await fetch(`/api/voice-sample/${voice.voice_id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: voice.preview_text || 'Merhaba! Ben bu şekilde konuşuyorum.' })
-      });
-      const audioBlob = await res.blob();
+      const res = await api.post(`/api/voice-sample/${voice.voice_id}`, {
+        text: voice.preview_text || 'Merhaba! Ben bu şekilde konuşuyorum.'
+      }, { responseType: 'blob' });
+      const audioBlob = res.data;
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
       audio.onended = () => setPlayingId(null);
