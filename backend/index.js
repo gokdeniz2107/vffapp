@@ -10,7 +10,7 @@ import googlettsRoutes from './routes/googletts.js';
 
 dotenv.config();
 const app = express();
-app.use(cors());
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
@@ -147,4 +147,5 @@ app.delete('/tasks/:id', auth, async (req, res) => {
 app.use('/api', elevenlabsRoutes);
 app.use('/api/google', googlettsRoutes);
 
-app.listen(4000, () => console.log('API ready on http://localhost:4000')); 
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => console.log(`API ready on port ${PORT}`)); 

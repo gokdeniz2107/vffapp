@@ -2,9 +2,8 @@ import express from 'express';
 import textToSpeech from '@google-cloud/text-to-speech';
 
 const router = express.Router();
-const client = new textToSpeech.TextToSpeechClient({
-  keyFilename: './vffapp-voice.json' // JSON dosyanın adı
-});
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+const client = new textToSpeech.TextToSpeechClient({ credentials });
 
 router.post('/tts', async (req, res) => {
   const { text, lang = 'tr-TR' } = req.body;

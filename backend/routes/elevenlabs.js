@@ -1,9 +1,11 @@
 import express from 'express';
 import fetch from 'node-fetch';
+import cors from 'cors';
 
 const router = express.Router();
-//const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
-const ELEVENLABS_API_KEY = 'sk_9fb7190a8046a68e00ddbbcb4ab26c2a08cc0f48afe6026f';
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+
+router.use(cors({ origin: '*' }));
 
 // ElevenLabs'ten ses listesini çek
 router.get('/voices', async (req, res) => {

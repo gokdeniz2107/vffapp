@@ -2,6 +2,7 @@ import React, { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FcGoogle } from 'react-icons/fc';
 import { FaApple, FaFacebookF } from 'react-icons/fa';
+import api from '../utils/api';
 
 // X (Twitter) SVG ikonu
 type XIconProps = {};
@@ -29,21 +30,30 @@ const Login: React.FC = () => {
     e.preventDefault();
     setError("");
     try {
-      const res = await fetch('http://localhost:4000/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        localStorage.setItem('token', data.token);
-        navigate('/ai-onboarding');
-      } else {
-        setError(data.error || 'Login failed');
-      }
-    } catch (err) {
-      setError('Network error');
+      const { data } = await api.post('/auth/login', { email, password });
+      localStorage.setItem('token', data.token);
+      navigate('/ai-onboarding');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Login failed');
     }
+  };
+
+  const handleRegister = async (e: FormEvent) => {
+    e.preventDefault();
+    setRegisterError("");
+    setRegisterLoading(true);
+    try {
+      const { data } = await api.post('/auth/register', { 
+        email: registerEmail, 
+        password: registerPassword 
+      });
+      localStorage.setItem('token', data.token);
+      setShowRegister(false);
+      navigate('/ai-onboarding');
+    } catch (err: any) {
+      setRegisterError(err.response?.data?.error || 'Registration failed');
+    }
+    setRegisterLoading(false);
   };
 
   return (
@@ -143,29 +153,7 @@ const Login: React.FC = () => {
           <div className="bg-[#181024] rounded-3xl p-8 flex flex-col items-center w-[340px] relative">
             <button className="absolute top-4 right-4 text-white/60 hover:text-white text-2xl" onClick={() => setShowRegister(false)}>&times;</button>
             <div className="text-white text-[24px] font-bold mb-6">Create Account</div>
-            <form className="w-full flex flex-col gap-5" onSubmit={async (e: FormEvent) => {
-              e.preventDefault();
-              setRegisterError("");
-              setRegisterLoading(true);
-              try {
-                const res = await fetch('http://localhost:4000/auth/register', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ email: registerEmail, password: registerPassword })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                  localStorage.setItem('token', data.token);
-                  setShowRegister(false);
-                  navigate('/ai-onboarding');
-                } else {
-                  setRegisterError(data.error || 'Registration failed');
-                }
-              } catch (err) {
-                setRegisterError('Network error');
-              }
-              setRegisterLoading(false);
-            }}>
+            <form className="w-full flex flex-col gap-5" onSubmit={handleRegister}>
               <input
                 type="email"
                 placeholder="Email address"

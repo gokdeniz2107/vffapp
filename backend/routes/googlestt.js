@@ -5,9 +5,8 @@ const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Initialize Google Speech client
-const client = new speech.SpeechClient({
-  keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
-});
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+const client = new speech.SpeechClient({ credentials });
 
 // Route to handle speech-to-text conversion
 router.post('/stt', upload.single('audio'), async (req, res) => {
