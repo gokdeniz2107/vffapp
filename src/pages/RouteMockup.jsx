@@ -1,330 +1,589 @@
 import React, { useState, useEffect } from "react";
-import { FiChevronLeft, FiEdit2, FiTrash2 } from "react-icons/fi";
+import { FiChevronLeft, FiTrash2 } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
-import { MapContainer, TileLayer, Marker, Polyline, Popup } from 'react-leaflet';
+import { GoogleMap, LoadScript, DirectionsService, DirectionsRenderer, Marker } from '@react-google-maps/api';
 
-const steps = [
-  {
-    title: "Pick up clothes from dry cleaning",
-    time: "Today, 2:15 PM",
-    distance: "2,320m",
-    icon: "P",
-  },
-  {
-    title: "Buy a cake",
-    time: "Today, 2:08 PM",
-    distance: "1,43km",
-    icon: "O",
-  },
-  {
-    title: "Sign up for a dentist",
-    time: "Today, 2:00 PM",
-    distance: "540m",
-    icon: "O",
-  },
-];
+const mapContainerStyle = {
+  width: '100%',
+  height: '45vh'
+};
 
-const DEFAULT_TASKS = [
-  {
-    title: "Pick up clothes from dry cleaning",
-    position: [40.75, -73.8],
-  },
-  {
-    title: "Buy a cake",
-    position: [40.76, -73.82],
-  },
-  {
-    title: "Sign up for a dentist",
-    position: [40.77, -73.85],
-  },
+const center = {
+  lat: 36.8969,
+  lng: 30.7133
+};
+
+const PANEL_POSITIONS = {
+  closed: window.innerHeight - 100,
+  half: window.innerHeight / 2,
+  open: 120
+};
+
+const purpleMapStyle = [
+  { "elementType": "geometry", "stylers": [{ "color": "#1A1625" }] },
+  { "elementType": "labels.text.stroke", "stylers": [{ "color": "#251C35" }] },
+  { "elementType": "labels.text.fill", "stylers": [{ "color": "#6844E9" }] },
+  { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#251C35" }] },
+  { "featureType": "road", "elementType": "geometry.stroke", "stylers": [{ "color": "#6844E9" }, { "weight": 1 }] },
+  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#1A1625" }] },
+  { "featureType": "poi", "elementType": "geometry", "stylers": [{ "color": "#251C35" }] },
+  { "featureType": "transit", "elementType": "geometry", "stylers": [{ "color": "#251C35" }] },
+  { "featureType": "administrative", "elementType": "geometry", "stylers": [{ "color": "#251C35" }] },
+  { "featureType": "landscape", "elementType": "geometry", "stylers": [{ "color": "#1A1625" }] }
 ];
 
 const RouteMockup = () => {
-  const [started, setStarted] = useState(false);
   const navigate = useNavigate();
-  const [taskLocations, setTaskLocations] = useState(DEFAULT_TASKS);
-  const [newTask, setNewTask] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [userLocation, setUserLocation] = useState([36.8969, 30.7133]); // Antalya default
-  const [startAddress, setStartAddress] = useState("");
-  const [editMode, setEditMode] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState("");
-  const [aiResponse, setAiResponse] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState("");
+  const [tasks, setTasks] = useState([]);
+  const [directions, setDirections] = useState(null);
+  const [panelPosition, setPanelPosition] = useState(PANEL_POSITIONS.half);
+  const [isDragging, setIsDragging] = useState(false);
+  const [startY, setStartY] = useState(0);
+  const [startPanelY, setStartPanelY] = useState(PANEL_POSITIONS.half);
+  const [map, setMap] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState(null);
+  const [activeTask, setActiveTask] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
+  const [showLocationError, setShowLocationError] = useState(false);
+  const [routeInfo, setRouteInfo] = useState(null);
+  const [showAiAdvice, setShowAiAdvice] = useState(false);
+  const [aiAdvice, setAiAdvice] = useState("");
+  const [mapCenter, setMapCenter] = useState(center);
+  const [hasCentered, setHasCentered] = useState(false);
+  const [locationError, setLocationError] = useState(false);
+  const [aiAdviceBubble, setAiAdviceBubble] = useState(null);
+  const [aiAdviceRoute, setAiAdviceRoute] = useState(null);
 
-  // Adres -> koordinat
-  async function getCoordinates(query) {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
-    const res = await fetch(url);
+  // Görevleri backend'den çek
+  useEffect(() => {
+    const fetchTasks = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+      try {
+        const res = await fetch("http://localhost:4000/tasks", {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
     const data = await res.json();
-    if (data && data.length > 0) {
-      return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+        setTasks(Array.isArray(data) ? data : []);
+      } catch (err) {
+        setTasks([]);
+      }
+    };
+    fetchTasks();
+  }, [navigate]);
+
+  // Görevlerin nasıl geldiğini logla
+  useEffect(() => {
+    console.log("Gelen görevler:", tasks);
+  }, [tasks]);
+
+  // Görev silme fonksiyonu
+  const handleDeleteTask = async (id) => {
+    await fetch(`http://localhost:4000/tasks/${id}`, { method: 'DELETE' });
+    setTasks(tasks.filter(t => t._id !== id));
+    setShowDeleteModal(false);
+    setTaskToDelete(null);
+  };
+
+  // Calculate directions when map loads
+  const handleMapLoad = (mapInstance) => {
+    setMap(mapInstance);
+    if (tasks.length >= 2 && window.google) {
+      const waypoints = tasks.slice(1, -1).map(task => ({
+        location: task.location,
+        stopover: true
+      }));
+
+      const directionsService = new window.google.maps.DirectionsService();
+      directionsService.route(
+        {
+          origin: tasks[0].location,
+          destination: tasks[tasks.length - 1].location,
+          waypoints: waypoints,
+          travelMode: window.google.maps.TravelMode.DRIVING,
+          optimizeWaypoints: true
+        },
+        (result, status) => {
+          if (status === "OK") {
+            setDirections(result);
+  }
+        }
+      );
     }
+  };
+
+  // Panel drag handlers (mouse + touch)
+  const handleDragStart = (e) => {
+    setIsDragging(true);
+    setStartY(e.touches ? e.touches[0].clientY : e.clientY);
+    setStartPanelY(panelPosition);
+    document.body.style.userSelect = 'none';
+  };
+
+  const handleDragMove = (e) => {
+    if (!isDragging) return;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const deltaY = clientY - startY;
+    let newPos = startPanelY + deltaY;
+    newPos = Math.max(PANEL_POSITIONS.open, Math.min(PANEL_POSITIONS.closed, newPos));
+    setPanelPosition(newPos);
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    document.body.style.userSelect = '';
+    // Snap to nearest position
+    const distances = Object.values(PANEL_POSITIONS).map(pos => Math.abs(panelPosition - pos));
+    const minIdx = distances.indexOf(Math.min(...distances));
+    setPanelPosition(Object.values(PANEL_POSITIONS)[minIdx]);
+  };
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleDragMove);
+      window.addEventListener('mouseup', handleDragEnd);
+      window.addEventListener('touchmove', handleDragMove);
+      window.addEventListener('touchend', handleDragEnd);
+        } else {
+      window.removeEventListener('mousemove', handleDragMove);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchmove', handleDragMove);
+      window.removeEventListener('touchend', handleDragEnd);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleDragMove);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchmove', handleDragMove);
+      window.removeEventListener('touchend', handleDragEnd);
+    };
+  }, [isDragging]);
+
+  // Update task with AI
+  const updateTaskWithAI = async (taskId) => {
+    try {
+      const response = await fetch('/api/ai/update-task', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          taskId,
+          currentTasks: tasks
+        })
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        setTasks(prevTasks => prevTasks.map(task => 
+          task._id === taskId ? { ...task, ...data.updatedTask } : task
+        ));
+      }
+    } catch (error) {
+      console.error('AI update failed:', error);
+    }
+  };
+
+  // Update directions when tasks change
+  useEffect(() => {
+    if (map && tasks.length >= 2 && window.google) {
+      const waypoints = tasks.slice(1, -1).map(task => ({
+        location: task.location,
+        stopover: true
+      }));
+      const directionsService = new window.google.maps.DirectionsService();
+      directionsService.route(
+        {
+          origin: tasks[0].location,
+          destination: tasks[tasks.length - 1].location,
+          waypoints: waypoints,
+          travelMode: window.google.maps.TravelMode.DRIVING,
+          optimizeWaypoints: true
+        },
+        (result, status) => {
+          if (status === "OK") {
+            setDirections(result);
+          } else {
+            setDirections(null);
+          }
+        }
+      );
+    } else {
+      setDirections(null);
+    }
+  }, [tasks, map]);
+
+  // Calculate dynamic map height based on panel position
+  const mapHeight = `${Math.max(120, panelPosition)}px`;
+
+  // Yardımcı: location'ı her zaman obje olarak döndür
+  function ensureLatLng(obj) {
+    if (!obj) return null;
+    if (typeof obj === 'string') {
+      try {
+        const parsed = JSON.parse(obj);
+        if (parsed && typeof parsed.lat === 'number' && typeof parsed.lng === 'number') return parsed;
+        return null;
+      } catch {
+        return null;
+        }
+    }
+    if (typeof obj.lat === 'number' && typeof obj.lng === 'number') return obj;
     return null;
   }
 
-  // İlk açılışta localStorage'dan startAddress oku ve koordinata çevir
-  useEffect(() => {
-    const addr = localStorage.getItem('startAddress');
-    if (addr && addr.length > 0) {
-      setStartAddress(addr);
-      getCoordinates(addr).then(coords => {
-        if (coords) {
-          setUserLocation(coords);
-        } else {
-          // Adres koordinata çevrilemedi, tarayıcıdan konum al
-          if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-              (pos) => {
-                setUserLocation([pos.coords.latitude, pos.coords.longitude]);
-              },
-              (err) => {
-                console.warn('Konum alınamadı:', err);
-                setUserLocation([36.8969, 30.7133]); // Antalya fallback
-              },
-              { enableHighAccuracy: true }
-            );
-          } else {
-            setUserLocation([36.8969, 30.7133]); // Antalya fallback
+  // Start butonuna tıklanınca
+  const handleStartTask = (task) => {
+    const safeUserLoc = ensureLatLng(userLocation);
+    const safeTaskLoc = ensureLatLng(task.location);
+    if (!safeUserLoc || !safeTaskLoc) {
+      setShowLocationError(true);
+      return;
+    }
+    setActiveTask(task);
+    // Directions API ile rota ve alternatifleri hesapla
+    if (window.google) {
+      const directionsService = new window.google.maps.DirectionsService();
+      directionsService.route(
+        {
+          origin: safeUserLoc,
+          destination: safeTaskLoc,
+          travelMode: window.google.maps.TravelMode.DRIVING,
+          provideRouteAlternatives: true
+        },
+        (result, status) => {
+          if (status === "OK" && result.routes.length > 1) {
+            setDirections(result); // Varsayılanı göster
+            const leg = result.routes[0].legs[0];
+            setRouteInfo({
+              duration: leg.duration.text,
+              distance: leg.distance.text
+            });
+            setTimeout(() => {
+              setAiAdviceBubble({
+                message: "AI Suggestion: Trafiği atlamak için alternatif bir rota buldum! Uygulamak ister misin?",
+                hasShortcut: true
+              });
+              setAiAdviceRoute({
+                origin: safeUserLoc,
+                destination: safeTaskLoc,
+                travelMode: window.google.maps.TravelMode.DRIVING,
+                routeIndex: 1 // Alternatif rota
+              });
+            }, 1500);
+          } else if (status === "OK") {
+            setDirections(result);
+            const leg = result.routes[0].legs[0];
+            setRouteInfo({
+              duration: leg.duration.text,
+              distance: leg.distance.text
+            });
+            setAiAdviceBubble(null);
           }
         }
-      });
-    } else if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
+      );
+    }
+  };
+
+  // Canlı konum takibi: Sayfa açıldığında ve açıkken konumu sürekli al
+  useEffect(() => {
+    if (navigator.geolocation) {
+      const watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          setUserLocation([pos.coords.latitude, pos.coords.longitude]);
+          setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setLocationError(false);
         },
         (err) => {
-          console.warn('Konum alınamadı:', err);
-          setUserLocation([36.8969, 30.7133]); // Antalya fallback
+          setLocationError(true);
         },
-        { enableHighAccuracy: true }
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
       );
-    } else {
-      setUserLocation([36.8969, 30.7133]); // Antalya fallback
+      return () => navigator.geolocation.clearWatch(watchId);
     }
   }, []);
 
-  // Rota: kullanıcı konumu + task'lar
-  const routeLine = [userLocation, ...taskLocations.map(t => t.position)];
-
-  const handleAddTask = async () => {
-    if (!newTask.trim()) return;
-    setLoading(true);
-    const coords = await getCoordinates(newTask);
-    setLoading(false);
-    if (coords) {
-      setTaskLocations([...taskLocations, { title: newTask, position: coords }]);
-      setNewTask("");
-    } else {
-      alert("Konum bulunamadı. Lütfen daha açık bir adres girin.");
+  // userLocation ilk geldiğinde harita merkezini bir kez ayarla
+  useEffect(() => {
+    if (userLocation && !hasCentered) {
+      setMapCenter(userLocation);
+      setHasCentered(true);
     }
-  };
+  }, [userLocation, hasCentered]);
 
-  // AI öneri fonksiyonu
-  const handleAIPrompt = async () => {
-    if (!aiPrompt.trim() || aiLoading) return;
-    setAiError("");
-    setAiLoading(true);
-    setAiResponse("");
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: aiPrompt, character: "professional" }),
-      });
-      const data = await res.json();
-      if (data.result) {
-        setAiResponse(data.result);
-      } else {
-        setAiError(data.error || "Unknown error");
-      }
-    } catch (err) {
-      setAiError("Network error");
-    }
-    setAiLoading(false);
-  };
+  // userLocation değiştikçe konsola yaz
+  useEffect(() => {
+    console.log("userLocation:", userLocation);
+  }, [userLocation]);
 
   return (
-    <div className="min-h-screen w-full flex flex-col items-center bg-[#F7F8FA] font-inter">
+    <div className="min-h-screen bg-[#1A1625] flex flex-col">
       {/* Header */}
-      <div className="w-full max-w-md mx-auto flex flex-col items-center pt-4 pb-2">
-        <div className="w-full flex items-center justify-between mb-1 relative">
-          <button className="w-9 h-9 flex items-center justify-center bg-[#F7F8FA] rounded-md border border-[#E2EAF2]" onClick={() => started ? setStarted(false) : navigate(-1)}>
-            <FiChevronLeft size={24} className="text-black" />
+      <div className="px-4 py-4">
+        <div className="flex items-center">
+          <button 
+            onClick={() => navigate(-1)}
+            className="text-white p-2"
+          >
+            <FiChevronLeft size={24} />
           </button>
-          <div className="flex-1 flex flex-col items-center">
-            <div className="text-[20px] font-bold text-black">My route</div>
-            <div className="text-[14px] text-black/50 font-medium mt-1">Perfect route taking into account traffic jams</div>
+          <div className="flex-1 text-center">
+            <h1 className="text-white text-xl font-bold">My route</h1>
+            <p className="text-gray-400 text-sm">Perfect route taking into account traffic jams</p>
           </div>
-          <div className="w-9 h-9" />
+          <div className="w-8" />
         </div>
       </div>
-      {/* State: Plan başlatılmadı */}
-      {!started ? (
-        <>
-          {/* Gerçek harita - react-leaflet ile */}
-          <div className="w-[335px] h-[420px] rounded-3xl bg-white shadow-xl relative mt-2 mb-4 overflow-hidden flex items-center justify-center">
-            <MapContainer center={userLocation} zoom={13} style={{ height: 400, width: 320, borderRadius: 24 }}>
-              <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                attribution="&copy; OpenStreetMap contributors & CartoDB"
-              />
-              {/* Kullanıcı konumu marker */}
-              <Marker position={userLocation}>
-                <Popup>Senin konumun</Popup>
-              </Marker>
-              {taskLocations.map((task, idx) => (
-                <Marker key={idx} position={task.position}>
-                  <Popup>{task.title}</Popup>
-                </Marker>
-              ))}
-              <Polyline positions={routeLine} color="#295A95" weight={4} dashArray="8" />
-            </MapContainer>
-            {/* Harita üstü buton */}
-            <button className="absolute left-4 bottom-4 w-12 h-12 rounded-full bg-[#292662] flex items-center justify-center shadow-lg">
-              <span className="w-5 h-5 bg-white rounded-full block" />
-            </button>
+
+      {/* Map */}
+      <LoadScript googleMapsApiKey="AIzaSyBCE4VaasW2r-ZXfUXx0f6Hk5MnSfg1AS0">
+        <div style={{ width: '100%', height: mapHeight, transition: 'height 0.3s cubic-bezier(.4,1.5,.5,1)' }}>
+          {/* Konumuma Git butonu */}
+          <button
+            onClick={() => userLocation && setMapCenter(userLocation)}
+            className="absolute z-50 right-6 top-6 bg-[#6844E9] text-white px-4 py-2 rounded-xl shadow-lg font-bold hover:bg-[#7c5be6] transition-all"
+            style={{boxShadow: '0 2px 8px #6844E980'}}
+          >
+            Konumuma Git
+          </button>
+          <GoogleMap
+            mapContainerStyle={{ width: '100%', height: '100%' }}
+            center={mapCenter}
+            zoom={14}
+            onLoad={handleMapLoad}
+            options={{
+              styles: purpleMapStyle
+            }}
+          >
+            {/* Konum yükleniyor spinnerı ve placeholder marker */}
+            {!ensureLatLng(userLocation) && !locationError && (
+              <>
+                <div style={{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',zIndex:1000}}>
+                  <div className="flex flex-col items-center gap-2">
+                    <svg className="animate-spin" width="48" height="48" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="20" stroke="#6844E9" strokeWidth="6" opacity="0.2"/><path d="M44 24a20 20 0 0 1-20 20" stroke="#6844E9" strokeWidth="6" strokeLinecap="round"/></svg>
+                    <span className="text-[#6844E9] text-lg font-bold mt-2">Loading location...</span>
+                  </div>
           </div>
-          {/* AI Öneri kutusu */}
-          <div className="w-full max-w-md flex flex-col items-center gap-2 mt-2 mb-2 px-4">
-            <div className="w-full flex gap-2">
-              <input
-                type="text"
-                value={aiPrompt}
-                onChange={e => setAiPrompt(e.target.value)}
-                placeholder="AI'dan rota/görev önerisi al..."
-                className="flex-1 px-4 py-3 rounded-lg border border-[#E2EAF2] text-[15px] focus:outline-none shadow-sm bg-white"
-                disabled={aiLoading}
+                {/* Placeholder marker (gri) */}
+                <Marker position={mapCenter} icon={{
+                  url: "data:image/svg+xml;utf8,<svg width='48' height='48' viewBox='0 0 48 48' fill='none' xmlns='http://www.w3.org/2000/svg'><circle cx='24' cy='24' r='20' fill='%23B6B0C2' stroke='white' stroke-width='4'/><circle cx='24' cy='24' r='8' fill='white'/></svg>",
+                  scaledSize: { width: 48, height: 48 }
+                }} />
+              </>
+            )}
+            {ensureLatLng(userLocation) && (
+              <Marker position={ensureLatLng(userLocation)} icon={{
+                url: "data:image/svg+xml;utf8,<svg width='48' height='48' viewBox='0 0 48 48' fill='none' xmlns='http://www.w3.org/2000/svg'><circle cx='24' cy='24' r='20' fill='%23FF3B30' stroke='white' stroke-width='4'/><circle cx='24' cy='24' r='8' fill='white'/></svg>",
+                scaledSize: { width: 48, height: 48 }
+              }} />
+            )}
+            {directions && (
+              <DirectionsRenderer
+                directions={directions}
+                options={{
+                  polylineOptions: {
+                    strokeColor: "#FFD600",
+                    strokeWeight: 4
+                  }
+                }}
               />
-              <button
-                onClick={handleAIPrompt}
-                className="px-4 py-3 rounded-lg bg-[#295A95] text-white font-semibold disabled:opacity-60"
-                disabled={aiLoading || !aiPrompt.trim()}
-              >AI'ya Sor</button>
+            )}
+          </GoogleMap>
             </div>
-            {aiLoading && <div className="w-full text-center text-[#295A95] text-[15px]">Yükleniyor...</div>}
-            {aiError && <div className="w-full text-center text-red-500 text-[14px]">{aiError}</div>}
-            {aiResponse && <div className="w-full text-center text-black text-[15px] bg-[#EAF6FF] rounded-lg p-3 mt-1">{aiResponse}</div>}
+      </LoadScript>
+
+      {/* Sliding Task Panel */}
+      <div 
+        className="fixed left-0 right-0 bg-[#251C35] rounded-t-[20px] shadow-lg z-50"
+        style={{
+          top: `${panelPosition}px`,
+          height: `calc(100vh - ${panelPosition}px)`,
+          transition: isDragging ? 'none' : 'top 0.3s cubic-bezier(.4,1.5,.5,1)',
+          touchAction: 'none',
+        }}
+        onMouseDown={handleDragStart}
+        onTouchStart={handleDragStart}
+      >
+        <div className="w-full p-5 flex flex-col items-center gap-8">
+          <div className="w-[45px] h-[5px] bg-[#D9D9D9] rounded-[10px] cursor-pointer" />
+          
+          {/* Tasks List */}
+          <div className="w-full flex flex-col gap-5">
+            {tasks.map((task) => (
+              <div
+                key={task._id}
+                className="bg-[#0E0515] rounded-xl border border-[#6844E9] p-6 flex flex-col gap-6 relative"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-full border border-[#6844E9] flex items-center justify-center">
+                    {task.completed && (
+                      <div className="w-3.5 h-3.5 bg-[#6844E9] rounded-full" />
+                    )}
           </div>
-          {/* Steps & buttons */}
-          <div className="w-full max-w-md flex flex-col items-center bg-white rounded-t-3xl pt-4 pb-6 px-4 shadow-lg">
-            <div className="w-full flex flex-col gap-4 mb-4">
-              {taskLocations.map((step, idx) => (
-                <div key={idx} className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 border-[#295A95] bg-[#C1E0ED]`}>
-                    ✓
+                  <span className={`text-white text-[17px] ${task.completed ? 'font-normal' : 'font-bold'}`}>{task.title}</span>
+                  <div className="flex items-center gap-3 ml-auto">
+                    <button
+                      className="px-4 py-2 rounded-xl bg-[#6844E9] text-white font-bold text-[15px] hover:opacity-90 transition-all"
+                      onClick={() => handleStartTask(task)}
+                    >
+                      Start
+                    </button>
+                    <button
+                      className="text-[#6844E9] hover:text-red-500 transition-colors"
+                      onClick={e => { e.stopPropagation(); setTaskToDelete(task); setShowDeleteModal(true); }}
+                      title="Delete task"
+                      style={{marginLeft: 8}}
+                    >
+                      <FiTrash2 size={20} />
+                    </button>
                   </div>
-                  <div className="flex-1">
-                    <div className="text-[15px] font-semibold text-[#39699E] font-poppins">{step.title}</div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-[#999] font-poppins">Task</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-white text-[17px]">{task.status}</span>
+                  <span className="text-[#6844E9] text-[15px]">{task.time}</span>
                     </div>
+                {task.current && (
+                  <>
+                    <div className="w-[42px] h-[58px] bg-[#6844E9]" />
+                    <div className="text-white text-[10px] text-center">NOW</div>
+                  </>
+                )}
+                {activeTask && activeTask._id === task._id && routeInfo && (
+                  <div className="mt-3 text-[#FFD600] text-[15px] font-bold">ETA: {routeInfo.duration} ({routeInfo.distance})</div>
+                )}
+                {activeTask && activeTask._id === task._id && showAiAdvice && (
+                  <div className="absolute right-0 bottom-[-60px] animate-bounce">
+                    <button onClick={() => alert(aiAdvice)} className="bg-[#6844E9] text-white px-4 py-2 rounded-2xl shadow-lg font-bold">AI Advice</button>
                   </div>
-                  {editMode && (
-                    <button onClick={() => setTaskLocations(taskLocations.filter((_, i) => i !== idx))} className="p-2 text-red-500 hover:text-red-700"><FiTrash2 size={18} /></button>
                   )}
                 </div>
               ))}
             </div>
-            <div className="w-full flex gap-4 mt-2">
-              <button className="flex-1 h-14 bg-[#292662] text-white rounded-lg text-[15px] font-medium shadow-lg transition-all hover:bg-[#222] active:scale-95" onClick={() => setStarted(true)}>Start</button>
-              <button className="flex-1 h-14 bg-black text-white rounded-lg text-[15px] font-medium shadow-lg transition-all hover:bg-[#222] active:scale-95 flex items-center justify-center gap-2" onClick={() => setEditMode(e => !e)}><FiEdit2 size={18} />Edit</button>
-            </div>
-            <div className="w-[134px] h-[5px] bg-[#060606] rounded-full mt-6" />
-          </div>
-          <div className="w-full max-w-md flex flex-col items-center gap-2 mt-2 mb-2">
-            <div className="flex w-full gap-2 px-4">
-              <input
-                type="text"
-                value={newTask}
-                onChange={e => setNewTask(e.target.value)}
-                placeholder="Yeni task veya adres girin..."
-                className="flex-1 px-4 py-3 rounded-lg border border-[#E2EAF2] text-[15px] focus:outline-none shadow-sm bg-white"
-                disabled={loading}
-              />
+
+          {/* Finish Button */}
               <button
-                onClick={handleAddTask}
-                className="px-4 py-3 rounded-lg bg-[#295A95] text-white font-semibold disabled:opacity-60"
-                disabled={loading}
-              >Ekle</button>
+            className="w-full h-[56px] bg-[#6844E9] rounded-xl text-white text-[18px] font-bold"
+            onClick={() => setPanelPosition(PANEL_POSITIONS.closed)}
+          >
+            finish
+          </button>
             </div>
           </div>
-        </>
-      ) : (
-        <>
-          {/* Gerçek harita - react-leaflet ile (Finish state) */}
-          <div className="w-[335px] h-[420px] rounded-3xl bg-white shadow-xl relative mt-2 mb-4 overflow-hidden flex items-center justify-center">
-            <MapContainer center={userLocation} zoom={13} style={{ height: 400, width: 320, borderRadius: 24 }}>
-              <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                attribution="&copy; OpenStreetMap contributors & CartoDB"
-              />
-              {/* Kullanıcı konumu marker */}
-              <Marker position={userLocation}>
-                <Popup>Senin konumun</Popup>
-              </Marker>
-              {taskLocations.map((task, idx) => (
-                <Marker key={idx} position={task.position}>
-                  <Popup>{task.title}</Popup>
-                </Marker>
-              ))}
-              <Polyline positions={routeLine} color="#295A95" weight={4} dashArray="8" />
-            </MapContainer>
-            {/* Harita üstü buton */}
-            <button className="absolute left-4 bottom-4 w-12 h-12 rounded-full bg-[#292662] flex items-center justify-center shadow-lg">
-              <span className="w-5 h-5 bg-white rounded-full block" />
-            </button>
-          </div>
-          {/* AI Öneri kutusu */}
-          <div className="w-full max-w-md flex flex-col items-center gap-2 mt-2 mb-2 px-4">
-            <div className="w-full flex gap-2">
-              <input
-                type="text"
-                value={aiPrompt}
-                onChange={e => setAiPrompt(e.target.value)}
-                placeholder="AI'dan rota/görev önerisi al..."
-                className="flex-1 px-4 py-3 rounded-lg border border-[#E2EAF2] text-[15px] focus:outline-none shadow-sm bg-white"
-                disabled={aiLoading}
-              />
-              <button
-                onClick={handleAIPrompt}
-                className="px-4 py-3 rounded-lg bg-[#295A95] text-white font-semibold disabled:opacity-60"
-                disabled={aiLoading || !aiPrompt.trim()}
-              >AI'ya Sor</button>
+
+      {/* Delete confirmation modal */}
+      {showDeleteModal && taskToDelete && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/60">
+          <div className="bg-[#181024] rounded-3xl p-8 flex flex-col items-center w-[324px]">
+            <div className="text-white text-[22px] font-bold mb-6 flex items-center gap-2">Are you sure you want to delete this task?</div>
+            <div className="flex gap-4 mt-2">
+              <button onClick={() => handleDeleteTask(taskToDelete._id)} className="px-6 py-2 rounded-xl bg-[#6844E9] text-white font-bold">Yes</button>
+              <button onClick={() => { setShowDeleteModal(false); setTaskToDelete(null); }} className="px-6 py-2 rounded-xl bg-[#251C35] text-white font-bold border border-[#6844E9]">No</button>
             </div>
-            {aiLoading && <div className="w-full text-center text-[#295A95] text-[15px]">Yükleniyor...</div>}
-            {aiError && <div className="w-full text-center text-red-500 text-[14px]">{aiError}</div>}
-            {aiResponse && <div className="w-full text-center text-black text-[15px] bg-[#EAF6FF] rounded-lg p-3 mt-1">{aiResponse}</div>}
-          </div>
-          {/* Steps (tamamlandı) & Finish butonu */}
-          <div className="w-full max-w-md flex flex-col items-center bg-white rounded-t-3xl pt-4 pb-6 px-4 shadow-lg">
-            <div className="w-full flex flex-col gap-4 mb-4">
-              {taskLocations.map((step, idx) => (
-                <div key={idx} className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center border-2 border-[#295A95] bg-[#C1E0ED]">
-                    ✓
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-[15px] font-semibold text-[#39699E] font-poppins line-through">{step.title}</div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-[#999] font-poppins">Completed</span>
                     </div>
                   </div>
-                  {editMode && (
-                    <button onClick={() => setTaskLocations(taskLocations.filter((_, i) => i !== idx))} className="p-2 text-red-500 hover:text-red-700"><FiTrash2 size={18} /></button>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="w-full flex gap-4 mt-2">
-              <button className="flex-1 h-14 bg-black text-white rounded-lg text-[15px] font-medium shadow-lg transition-all hover:bg-[#222] active:scale-95" >Finish</button>
-              <button className="flex-1 h-14 bg-black text-white rounded-lg text-[15px] font-medium shadow-lg transition-all hover:bg-[#222] active:scale-95 flex items-center justify-center gap-2" onClick={() => setEditMode(e => !e)}><FiEdit2 size={18} />Edit</button>
-            </div>
-            <div className="w-[134px] h-[5px] bg-[#060606] rounded-full mt-6" />
+      )}
+
+      {/* Konum alınamazsa uyarı modalı */}
+      {locationError && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/60">
+          <div className="bg-[#181024] rounded-3xl p-8 flex flex-col items-center w-[324px]">
+            <div className="text-white text-[22px] font-bold mb-6 flex items-center gap-2">Location not found!</div>
+            <div className="text-[#FFD600] text-[16px] mb-4 text-center">Please allow location access in your browser and refresh the page.</div>
+            <button onClick={()=>window.location.reload()} className="px-6 py-2 rounded-xl bg-[#6844E9] text-white font-bold">Refresh</button>
           </div>
-        </>
+        </div>
+      )}
+
+      {/* AI Advice baloncuğu */}
+      {aiAdviceBubble && (
+        <div style={{
+          position: 'fixed',
+          top: 80,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1000,
+          background: 'linear-gradient(135deg, #6844E9 60%, #A084E8 100%)',
+          color: '#fff',
+          borderRadius: 20,
+          boxShadow: '0 4px 24px #6844E966',
+          padding: 32,
+          minWidth: 320,
+          maxWidth: 420,
+          textAlign: 'center',
+          fontSize: 18,
+          fontWeight: 500,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 16
+        }}>
+          <span>{aiAdviceBubble.message}</span>
+          {aiAdviceBubble.hasShortcut && (
+            <button
+              style={{
+                marginTop: 12,
+                background: '#fff',
+                color: '#6844E9',
+                border: 'none',
+                borderRadius: 8,
+                padding: '8px 24px',
+                fontWeight: 600,
+                fontSize: 17,
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px #6844E966'
+              }}
+              onClick={() => {
+                if (window.google && aiAdviceRoute) {
+                  const directionsService = new window.google.maps.DirectionsService();
+                  directionsService.route(
+                    {
+                      origin: aiAdviceRoute.origin,
+                      destination: aiAdviceRoute.destination,
+                      travelMode: aiAdviceRoute.travelMode,
+                      provideRouteAlternatives: true
+                    },
+                    (result, status) => {
+                      if (status === "OK" && result.routes[aiAdviceRoute.routeIndex]) {
+                        setDirections({
+                          ...result,
+                          routes: [result.routes[aiAdviceRoute.routeIndex]]
+                        });
+                        // ETA bilgisini de güncelle
+                        const leg = result.routes[aiAdviceRoute.routeIndex].legs[0];
+                        setRouteInfo({
+                          duration: leg.duration.text,
+                          distance: leg.distance.text
+                        });
+                        setAiAdviceBubble(null);
+                      }
+                    }
+                  );
+                }
+              }}
+            >
+              Uygula
+            </button>
+          )}
+          <button
+            style={{
+              marginTop: 8,
+              background: 'transparent',
+              color: '#fff',
+              border: '1px solid #fff',
+              borderRadius: 8,
+              padding: '6px 18px',
+              fontWeight: 500,
+              fontSize: 15,
+              cursor: 'pointer',
+              opacity: 0.7
+            }}
+            onClick={() => setAiAdviceBubble(null)}
+          >
+            Kapat
+          </button>
+        </div>
       )}
     </div>
   );

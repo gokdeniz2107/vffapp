@@ -1,60 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { FiTrash2 } from "react-icons/fi";
+import EventModal from '../components/EventModal';
+import { getEventsForDate, saveEvent, deleteEvent, updateEvent } from '../utils/eventUtils';
 
 const months = [
   "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"
 ];
 const weekDays = ["Mon", "Tue", "Today", "Thu", "Fri", "Sat", "Sun"];
-
-// Figma'ya uygun örnek task verisi
-const TASKS = [
-  {
-    id: 1,
-    title: "Meeting with a client",
-    description: "Meeting with client to discuss project updates and finalize the contract details.",
-    type: "Work/Business",
-    person: "Colton Mitchel",
-    date: "2024-07-21",
-    time: "16:00",
-  },
-  {
-    id: 2,
-    title: "Blood Test",
-    description: "Blood test with Dr. Alice Lesli.",
-    type: "Health",
-    person: "Dr. Alice Lesli",
-    date: "2024-07-10",
-    time: "08:30",
-  },
-  {
-    id: 3,
-    title: "Grocery shopping",
-    description: "Shopping list · Walmart",
-    type: "Personal",
-    person: "Shopping list",
-    date: "2024-07-18",
-    time: "",
-  },
-  {
-    id: 4,
-    title: "Hotel reservation",
-    description: "Marriott Bonvoy · Paris",
-    type: "Travel",
-    person: "Marriott Bonvoy",
-    date: "2024-07-18",
-    time: "",
-  },
-  // Mayıs ayı için örnek task
-  {
-    id: 5,
-    title: "Dentist Appointment",
-    description: "Routine dental check-up.",
-    type: "Health",
-    person: "Dr. John Doe",
-    date: "2024-05-05",
-    time: "15:00",
-  },
-];
 
 function getDaysInMonth(year, month) {
   const date = new Date(year, month, 1);
@@ -71,7 +24,43 @@ const Calendar = () => {
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [selectedDate, setSelectedDate] = useState(today);
+  const [selectedDate, setSelectedDate] = useState(today.toISOString().split('T')[0]);
+  const [tasks, setTasks] = useState([]);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState(null);
+
+  // Görevleri backend'den çek
+  useEffect(() => {
+    const fetchTasks = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+      try {
+        const res = await fetch("http://localhost:4000/tasks", {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        setTasks(Array.isArray(data) ? data : []);
+      } catch (err) {
+        setTasks([]);
+      }
+    };
+    fetchTasks();
+  }, [navigate]);
+
+  useEffect(() => {
+    loadEvents();
+  }, [selectedDate]);
+
+  const loadEvents = () => {
+    const dateEvents = getEventsForDate(selectedDate);
+    setEvents(dateEvents);
+  };
 
   // Aylar arası geçiş
   const prevMonth = () => {
@@ -97,11 +86,23 @@ const Calendar = () => {
   const offset = (firstDayOfWeek + 6) % 7; // Pazartesi ile başlatmak için
 
   // Seçili günün task'leri
-  const selectedDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, "0")}-${String(selectedDate.getDate()).padStart(2, "0")}`;
-  const selectedTasks = TASKS.filter(t => t.date === selectedDateStr);
+  const selectedDateObj = new Date(selectedDate);
+  const selectedDateStr = `${selectedDateObj.getFullYear()}-${String(selectedDateObj.getMonth() + 1).padStart(2, "0")}-${String(selectedDateObj.getDate()).padStart(2, "0")}`;
+  const selectedTasks = tasks.filter(t => {
+    if (!t.date) return false;
+    let taskDateStr = t.date;
+    if (taskDateStr.length <= 10) {
+      return taskDateStr === selectedDateStr;
+    } else {
+      const d = new Date(taskDateStr);
+      return d.getFullYear() === selectedDateObj.getFullYear() &&
+             d.getMonth() === selectedDateObj.getMonth() &&
+             d.getDate() === selectedDateObj.getDate();
+    }
+  });
 
   // O ayda task olan günler ve task sayısı
-  const taskCountByDay = TASKS.reduce((acc, t) => {
+  const taskCountByDay = tasks.reduce((acc, t) => {
     const d = new Date(t.date);
     if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
       const day = d.getDate();
@@ -109,6 +110,35 @@ const Calendar = () => {
     }
     return acc;
   }, {});
+
+  // Görev silme fonksiyonu
+  const handleDeleteTask = async (id) => {
+    await fetch(`http://localhost:4000/tasks/${id}`, { method: 'DELETE' });
+    setTasks(tasks.filter(t => t._id !== id));
+    setShowDeleteModal(false);
+    setTaskToDelete(null);
+  };
+
+  const handleEventSave = (event) => {
+    if (selectedEvent) {
+      updateEvent(selectedEvent.id, event);
+    } else {
+      saveEvent(event);
+    }
+    setShowEventModal(false);
+    setSelectedEvent(null);
+    loadEvents();
+  };
+
+  const handleEventClick = (event) => {
+    setSelectedEvent(event);
+    setShowEventModal(true);
+  };
+
+  const handleDeleteEvent = (eventId) => {
+    deleteEvent(eventId);
+    loadEvents();
+  };
 
   return (
     <div className="min-h-screen w-full max-w-md mx-auto bg-gradient-to-b from-[#1A0820] via-[#12001A] to-[#090013] flex flex-col items-center font-inter pb-24">
@@ -149,7 +179,7 @@ const Calendar = () => {
             ))}
             {daysInMonth.map((d, i) => {
               const isToday = d.toDateString() === today.toDateString();
-              const isSelected = d.toDateString() === selectedDate.toDateString();
+              const isSelected = d.toDateString() === new Date(selectedDate).toDateString();
               return (
                 <div key={i} className="relative flex items-center justify-center">
                   <button
@@ -158,7 +188,7 @@ const Calendar = () => {
                         isToday ? 'border-2 border-[#6844E9] text-white' :
                         'bg-transparent text-white/80'}
                     `}
-                    onClick={() => setSelectedDate(d)}
+                    onClick={() => setSelectedDate(d.toISOString().split('T')[0])}
                   >
                     {d.getDate()}
                   </button>
@@ -172,9 +202,33 @@ const Calendar = () => {
           <span className="text-white text-[20px] font-medium opacity-75">Tasks</span>
           <span className="text-white text-[14px] font-bold opacity-50 cursor-pointer">See all</span>
         </div>
-        <div className="w-full min-h-[120px] flex items-center justify-center">
-          {/* Tasklar burada dinamik olarak eklenecek, şimdilik boş */}
+        <div className="w-full min-h-[120px] flex flex-col items-center justify-start gap-2">
+          {selectedTasks.length === 0 ? (
+            <span className="text-white/40 text-[16px] mt-6">No tasks for this day</span>
+          ) : (
+            selectedTasks.map(task => (
+              <div key={task._id} className="w-full bg-[#251C35] rounded-xl px-4 py-3 flex items-center gap-4">
+                <span className="text-white text-[16px] font-bold">{task.title}</span>
+                <span className="ml-auto text-[#6844E9] text-[15px]">{task.time}</span>
+                <button onClick={() => { setTaskToDelete(task); setShowDeleteModal(true); }} className="ml-2 p-2 rounded-full hover:bg-[#6844E9]/20 transition-colors">
+                  <FiTrash2 size={20} color="#6844E9" />
+                </button>
+              </div>
+            ))
+          )}
         </div>
+        {/* Delete confirmation modal */}
+        {showDeleteModal && taskToDelete && (
+          <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/60">
+            <div className="bg-[#181024] rounded-3xl p-8 flex flex-col items-center w-[324px]">
+              <div className="text-white text-[22px] font-bold mb-6 flex items-center gap-2">Are you sure you want to delete this task?</div>
+              <div className="flex gap-4 mt-2">
+                <button onClick={() => handleDeleteTask(taskToDelete._id)} className="px-6 py-2 rounded-xl bg-[#6844E9] text-white font-bold">Yes</button>
+                <button onClick={() => { setShowDeleteModal(false); setTaskToDelete(null); }} className="px-6 py-2 rounded-xl bg-[#251C35] text-white font-bold border border-[#6844E9]">No</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       {/* Alt Navigation Bar */}
       <div className="fixed left-0 right-0 bottom-0 w-full flex flex-col items-center z-30">
@@ -226,6 +280,17 @@ const Calendar = () => {
         </div>
         <div className="w-[134px] h-[5px] bg-white/80 rounded-full mt-2 mb-2" />
       </div>
+      {/* Event Modal */}
+      {showEventModal && (
+        <EventModal 
+          onClose={() => {
+            setShowEventModal(false);
+            setSelectedEvent(null);
+          }}
+          onSave={handleEventSave}
+          initialEvent={selectedEvent}
+        />
+      )}
     </div>
   );
 };

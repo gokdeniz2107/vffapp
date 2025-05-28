@@ -3,28 +3,75 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Custom map styles */
+.leaflet-container {
+  background: #1A1625;
+}
+
+.leaflet-control-attribution {
+  display: none;
+}
+
+.leaflet-control-zoom {
+  border: none !important;
+  margin-right: 20px !important;
+}
+
+.leaflet-control-zoom a {
+  background: #6844E9 !important;
+  color: white !important;
+  border: none !important;
+}
+
+.leaflet-control-zoom-in {
+  border-radius: 8px 8px 0 0 !important;
+}
+
+.leaflet-control-zoom-out {
+  border-radius: 0 0 8px 8px !important;
+}
+
+@keyframes soundwave {
+  0% {
+    height: 10px;
+  }
+  50% {
+    height: 40px;
+  }
+  100% {
+    height: 10px;
+  }
+}
+
+.animate-soundwave {
+  animation: soundwave 1s ease-in-out infinite;
+}
+
 :root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #1A1625;
+
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-html, body {
-  min-height: 100vh;
-  width: 100vw;
-  background: linear-gradient(180deg, #1A0820 0%, #12001A 60%, #090013 100%);
-  /* Tailwind ile uyumlu olması için */
-  font-family: 'Inter', sans-serif;
+body {
   margin: 0;
-  padding: 0;
-  overflow-x: hidden;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
 }
 
 #root {
-  min-height: 100vh;
-  width: 100vw;
-  background: transparent;
+  width: 100%;
 }
 
 /* Font configurations */

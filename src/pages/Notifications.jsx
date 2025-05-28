@@ -1,31 +1,35 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-
-const notificationsData = [
-  { id: 1, text: "Your AI image is ready!", time: "1h ago" },
-  { id: 2, text: "Your AI image is ready!", time: "4h ago" },
-  { id: 3, text: "Limited-Time Offer: Get 20% Off Pro!", time: "Yesterday" },
-  { id: 4, text: "New Feature Alert: Collaborate in Real-Time!", time: "Yesterday" },
-  { id: 5, text: "Upgrade Now and Unlock Exclusive Templates!", time: "Yesterday" },
-  { id: 6, type: "task", text: "Canceling a table in a restaurant", taskType: "Task", completed: "12 Dec, 2024" },
-];
 
 const isMobile = () => window.innerWidth <= 600;
 
 const Notifications = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [notifications, setNotifications] = useState(notificationsData);
+  const [notifications, setNotifications] = useState([]);
   const from = location.state?.from || "/home";
 
   // Animasyon için silinecek id
   const [pendingDelete, setPendingDelete] = useState(null);
 
+  // Bildirimleri localStorage'dan yükle
+  useEffect(() => {
+    const stored = localStorage.getItem('notifications');
+    setNotifications(stored ? JSON.parse(stored) : []);
+    // Bildirimler sayfasına girince tüm bildirimleri okundu yap
+    if (stored) {
+      const arr = JSON.parse(stored).map(n => ({...n, read: true}));
+      localStorage.setItem('notifications', JSON.stringify(arr));
+    }
+  }, []);
+
   // Silme fonksiyonu (animasyonlu)
   const handleDelete = (id) => {
     setPendingDelete(id);
     setTimeout(() => {
-      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      const updated = notifications.filter((n) => n.id !== id);
+      setNotifications(updated);
+      localStorage.setItem('notifications', JSON.stringify(updated));
       setPendingDelete(null);
     }, 300); // 300ms animasyon süresi
   };

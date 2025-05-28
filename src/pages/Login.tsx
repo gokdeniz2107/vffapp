@@ -1,25 +1,49 @@
-import React, { useState } from 'react';
+import React, { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FcGoogle } from 'react-icons/fc';
 import { FaApple, FaFacebookF } from 'react-icons/fa';
 
 // X (Twitter) SVG ikonu
-const XIcon = () => (
+type XIconProps = {};
+const XIcon: React.FC<XIconProps> = () => (
   <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
     <rect width="22" height="22" rx="6" fill="none" />
     <path d="M16.5 6.1L12.3 11.1L16.9 17H14.7L11.5 12.9L8.1 17H5.1L9.9 11.7L5.5 6.1H7.7L10.7 9.9L13.9 6.1H16.5ZM15.9 16.1L11.5 10.7L7.1 16.1H8.5L11.5 12.3L14.5 16.1H15.9ZM6.1 7.1L10.5 12.5L14.9 7.1H13.5L10.5 10.9L7.5 7.1H6.1Z" fill="#fff"/>
   </svg>
 );
 
-const Login = () => {
-  const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
+const Login: React.FC = () => {
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [rememberMe, setRememberMe] = useState<boolean>(false);
+  const [email, setEmail] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [error, setError] = useState<string>("");
+  const [showRegister, setShowRegister] = useState<boolean>(false);
+  const [registerEmail, setRegisterEmail] = useState<string>("");
+  const [registerPassword, setRegisterPassword] = useState<string>("");
+  const [registerError, setRegisterError] = useState<string>("");
+  const [registerLoading, setRegisterLoading] = useState<boolean>(false);
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    // Giriş işlemleri burada
-    navigate('/ai-onboarding');
+    setError("");
+    try {
+      const res = await fetch('http://localhost:4000/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        localStorage.setItem('token', data.token);
+        navigate('/ai-onboarding');
+      } else {
+        setError(data.error || 'Login failed');
+      }
+    } catch (err) {
+      setError('Network error');
+    }
   };
 
   return (
@@ -39,6 +63,8 @@ const Login = () => {
               placeholder="Email address"
               className="w-full px-4 py-4 bg-transparent border border-[#2B2433] rounded-xl text-[17px] placeholder:text-[#D2D6DB] text-white focus:outline-none font-lato"
               required
+              value={email}
+              onChange={e => setEmail(e.target.value)}
             />
           </div>
           {/* Password */}
@@ -48,6 +74,8 @@ const Login = () => {
               placeholder="Password"
               className="w-full px-4 py-4 bg-transparent border border-[#2B2433] rounded-xl text-[17px] placeholder:text-[#D2D6DB] text-white focus:outline-none font-lato"
               required
+              value={password}
+              onChange={e => setPassword(e.target.value)}
             />
             <button
               type="button"
@@ -63,6 +91,8 @@ const Login = () => {
               )}
             </button>
           </div>
+          {/* Hata mesajı */}
+          {error && <div className="text-red-400 text-center text-[15px]">{error}</div>}
           {/* Remember Me & Forgot Password */}
           <div className="flex items-center justify-between mt-1">
             <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -103,11 +133,63 @@ const Login = () => {
         {/* Alt metin */}
         <div className="w-full text-center text-white text-[17px] font-normal leading-[24px] font-inter mb-4">
           Don't have an account?{' '}
-          <button className="underline underline-offset-2 font-semibold" onClick={() => navigate('/signup')}>Sign Up</button>
+          <button className="underline underline-offset-2 font-semibold" onClick={() => setShowRegister(true)}>Sign Up</button>
         </div>
       </div>
       {/* iOS bar */}
       <div className="w-[134px] h-[5px] bg-white/80 rounded-full mb-4" />
+      {showRegister && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-[#181024] rounded-3xl p-8 flex flex-col items-center w-[340px] relative">
+            <button className="absolute top-4 right-4 text-white/60 hover:text-white text-2xl" onClick={() => setShowRegister(false)}>&times;</button>
+            <div className="text-white text-[24px] font-bold mb-6">Create Account</div>
+            <form className="w-full flex flex-col gap-5" onSubmit={async (e: FormEvent) => {
+              e.preventDefault();
+              setRegisterError("");
+              setRegisterLoading(true);
+              try {
+                const res = await fetch('http://localhost:4000/auth/register', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ email: registerEmail, password: registerPassword })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                  localStorage.setItem('token', data.token);
+                  setShowRegister(false);
+                  navigate('/ai-onboarding');
+                } else {
+                  setRegisterError(data.error || 'Registration failed');
+                }
+              } catch (err) {
+                setRegisterError('Network error');
+              }
+              setRegisterLoading(false);
+            }}>
+              <input
+                type="email"
+                placeholder="Email address"
+                className="w-full px-4 py-4 bg-transparent border border-[#6844E9] rounded-xl text-[17px] placeholder:text-[#B6B0C2] text-white focus:outline-none font-lato"
+                required
+                value={registerEmail}
+                onChange={e => setRegisterEmail(e.target.value)}
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                className="w-full px-4 py-4 bg-transparent border border-[#6844E9] rounded-xl text-[17px] placeholder:text-[#B6B0C2] text-white focus:outline-none font-lato"
+                required
+                value={registerPassword}
+                onChange={e => setRegisterPassword(e.target.value)}
+              />
+              {registerError && <div className="text-red-400 text-center text-[15px]">{registerError}</div>}
+              <button type="submit" disabled={registerLoading} className="w-full h-14 bg-[#6844E9] rounded-xl flex items-center justify-center text-white text-[18px] font-bold shadow-lg transition-all hover:opacity-90 mt-2 disabled:opacity-60">
+                {registerLoading ? 'Creating...' : 'Sign Up'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

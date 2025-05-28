@@ -5,8 +5,6 @@ import fetch from "node-fetch";
 import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import elevenlabsRoutes from "./routes/elevenlabs.js";
-import googlettsRoutes from './routes/googletts.js';
 
 dotenv.config();
 const app = express();
@@ -17,6 +15,7 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL = "llama3-70b-8192";
 
+// MongoDB Atlas bağlantı adresin:
 mongoose.connect('mongodb+srv://karadenizgokdeniz152:21282177Gda@cluster0.wwanp0w.mongodb.net/vffapp?retryWrites=true&w=majority&appName=Cluster0');
 
 const TaskSchema = new mongoose.Schema({
@@ -36,14 +35,17 @@ const TaskSchema = new mongoose.Schema({
 });
 const Task = mongoose.model('Task', TaskSchema);
 
+// User schema
 const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
 });
 const User = mongoose.model('User', UserSchema);
 
+// JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
+// Register endpoint
 app.post('/auth/register', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
@@ -60,6 +62,7 @@ app.post('/auth/register', async (req, res) => {
   }
 });
 
+// Login endpoint
 app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
@@ -114,6 +117,7 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+// JWT auth middleware
 function auth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' });
@@ -127,24 +131,27 @@ function auth(req, res, next) {
   }
 }
 
+// Tüm görevleri getir (sadece kendi görevleri)
 app.get('/tasks', auth, async (req, res) => {
   const tasks = await Task.find({ userId: req.userId });
   res.json(tasks);
 });
 
+// Görev ekle (sadece kendi adına)
 app.post('/tasks', auth, async (req, res) => {
   const task = new Task({ ...req.body, userId: req.userId });
   await task.save();
   res.json(task);
 });
 
+// Görev sil (sadece kendi görevini silebilir)
 app.delete('/tasks/:id', auth, async (req, res) => {
   const task = await Task.findOneAndDelete({ _id: req.params.id, userId: req.userId });
   if (!task) return res.status(404).json({ error: 'Task not found' });
   res.json({ success: true });
 });
 
-app.use('/api', elevenlabsRoutes);
-app.use('/api/google', googlettsRoutes);
+const elevenlabsRoutes = require('./routes/elevenlabs');
+app.use('/api/elevenlabs', elevenlabsRoutes);
 
 app.listen(4000, () => console.log('API ready on http://localhost:4000')); 
