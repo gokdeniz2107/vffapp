@@ -9,12 +9,15 @@ import elevenlabsRoutes from "./routes/elevenlabs.js";
 import googlettsRoutes from './routes/googletts.js';
 
 dotenv.config();
+console.log('OPENAI_API_KEY:', process.env.OPENAI_API_KEY);
+process.exit(0);
+
 const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const MODEL = "llama3-70b-8192";
 
 mongoose.connect('mongodb+srv://karadenizgokdeniz152:21282177Gda@cluster0.wwanp0w.mongodb.net/vffapp?retryWrites=true&w=majority&appName=Cluster0');
@@ -88,11 +91,11 @@ app.post("/api/chat", async (req, res) => {
     systemPrompt = "You are a smart, witty, and quick-thinking assistant. Always answer with clever, insightful, and sometimes humorous responses.";
   }
   try {
-    const response = await fetch(GROQ_API_URL, {
+    const response = await fetch(OPENAI_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
         model: MODEL,
